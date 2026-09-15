@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ESP32 Voice Car</title>
+<style>
+*{box-sizing:border-box}body{font-family:Arial,sans-serif;background:#f2f4f7;margin:0;padding:18px;color:#17202a}.app{max-width:620px;margin:auto}h1{text-align:center;margin:8px 0 4px}.sub{text-align:center;color:#667085;margin-bottom:16px}.card{background:#fff;border-radius:16px;padding:16px;margin:12px 0;box-shadow:0 3px 12px #0001}button{border:0;border-radius:12px;padding:14px 10px;font-size:16px;font-weight:700;cursor:pointer}button:disabled{opacity:.45}.connect{width:100%;background:#1769e0;color:#fff}.voice{width:100%;background:#7c3aed;color:#fff;font-size:18px}.start{background:#16a34a;color:#fff;width:100%}.stop{background:#dc2626;color:#fff;width:100%}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.move{background:#e9eef5}.special{background:#f59e0b;color:#fff}.light{background:#334155;color:#fff}.status{padding:12px;border-radius:10px;background:#eef2f6;margin-top:10px;font-weight:700}.ok{color:#15803d}.bad{color:#b91c1c}#heard{font-size:18px;min-height:28px}.small{font-size:13px;color:#667085;line-height:1.5}</style>
+</head>
+<body>
+<div class="app">
+<h1>🚗 ESP32 Voice Car</h1><div class="sub">BLE + Voice Control</div>
+<div class="card"><button id="connectBtn" class="connect">🔵 Connect ESP32</button><div id="status" class="status">Not connected</div></div>
+<div class="card"><button id="startBtn" class="start">▶ START CAR</button><br><br><button id="stopBtn" class="stop">⛔ STOP CAR</button></div>
+<div class="card"><button id="voiceBtn" class="voice">🎤 Voice Command</button><div id="heard">Say a command...</div><div id="voiceStatus" class="small"></div></div>
+<div class="card"><div class="grid">
+<button class="move" data-cmd="forward">⬆ Forward</button><button class="move" data-cmd="backward">⬇ Backward</button>
+<button class="move" data-cmd="left">⬅ Left</button><button class="move" data-cmd="right">➡ Right</button>
+<button class="special" data-cmd="horn">🔊 Horn</button><button class="move" data-cmd="stop">🛑 Brake</button>
+<button class="light" data-cmd="light on">💡 Light ON</button><button class="light" data-cmd="light off">🌑 Light OFF</button>
+</div></div>
+<div class="card small"><b>Voice commands:</b><br>Start car · Move forward · Go backward · Turn left · Turn right · Stop car · Horn · Light on · Light off</div>
+<div class="card small"><b>Important:</b> Use an <b>HTTPS</b> web address in Android Chrome. Do not open as <code>file://</code>.</div>
+</div>
+<script>
+const SERVICE_UUID="6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+const CHARACTERISTIC_UUID="6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+const DEVICE_NAME="ESP32_Voice_Car";
+let device=null,characteristic=null;
+const statusBox=document.getElementById("status"),voiceBtn=document.getElementById("voiceBtn"),heard=document.getElementById("heard"),voiceStatus=document.getElementById("voiceStatus");
+function setStatus(text,good=false){statusBox.textContent=text;statusBox.className="status "+(good?"ok":"bad")}
+async function sendCommand(command){if(!characteristic){setStatus("Connect ESP32 first");return}try{const data=new TextEncoder().encode(command);if(characteristic.writeValueWithoutResponse)await characteristic.writeValueWithoutResponse(data);else await characteristic.writeValue(data);heard.textContent="Sent: "+command}catch(e){setStatus("Command failed: "+e.message)}}
+async function connectESP32(){if(!window.isSecureContext){setStatus("Use an HTTPS web address.");return}if(!navigator.bluetooth){setStatus("Web Bluetooth is not supported. Use Android Chrome.");return}try{setStatus("Searching for ESP32...");device=await navigator.bluetooth.requestDevice({filters:[{name:DEVICE_NAME}],optionalServices:[SERVICE_UUID]});device.addEventListener("gattserverdisconnected",()=>{characteristic=null;setStatus("ESP32 disconnected")});const server=await device.gatt.connect();const service=await server.getPrimaryService(SERVICE_UUID);characteristic=await service.getCharacteristic(CHARACTERISTIC_UUID);setStatus("ESP32 connected ✓",true)}catch(e){setStatus(e.name==="NotFoundError"?"No device selected.":"BLE error: "+e.message)}}
+document.getElementById("connectBtn").onclick=connectESP32;document.getElementById("startBtn").onclick=()=>sendCommand("start");document.getElementById("stopBtn").onclick=()=>sendCommand("stop");document.querySelectorAll("[data-cmd]").forEach(b=>b.onclick=()=>sendCommand(b.dataset.cmd));
+const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;let recognition=null;
+if(SpeechRecognition){recognition=new SpeechRecognition();recognition.lang="en-IN";recognition.continuous=false;recognition.interimResults=false;recognition.maxAlternatives=3;recognition.onstart=()=>{voiceBtn.textContent="🔴 Listening...";voiceStatus.textContent="Speak now..."};recognition.onresult=async event=>{let text="";for(let i=0;i<event.results.length;i++)text+=" "+event.results[i][0].transcript;text=text.trim().toLowerCase();heard.textContent="Heard: "+text;const command=voiceToCommand(text);if(command){voiceStatus.textContent="Command: "+command;await sendCommand(command)}else voiceStatus.textContent="Command not recognized."};recognition.onerror=event=>{voiceBtn.textContent="🎤 Voice Command";const msg={"not-allowed":"Microphone permission denied. Allow microphone for this site.","service-not-allowed":"Speech recognition service is not allowed.","audio-capture":"No microphone found or microphone is busy.","network":"Speech recognition network error.","no-speech":"No speech detected. Try again."};voiceStatus.textContent=msg[event.error]||("Voice error: "+event.error)};recognition.onend=()=>voiceBtn.textContent="🎤 Voice Command"}else{voiceBtn.disabled=true;voiceStatus.textContent="Voice recognition is not supported. Use Android Chrome."}
+function voiceToCommand(text){text=text.replace(/[.,!?]/g," ").replace(/\s+/g," ").trim();if((/\b(start|activate|enable)\b/.test(text))&&(/\b(car|vehicle|motor)\b/.test(text)))return"start";if(/^(start|activate|enable)$/.test(text))return"start";if(/\b(stop|halt|brake|disable)\b/.test(text))return"stop";if(/\b(horn|honk)\b/.test(text))return"horn";if(/\b(light|lights|lamp)\b/.test(text)&&/\b(on|turn on|switch on)\b/.test(text))return"light on";if(/\b(light|lights|lamp)\b/.test(text)&&/\b(off|turn off|switch off)\b/.test(text))return"light off";if(/\b(forward|ahead)\b/.test(text)||/\b(move|go|drive)\b.*\bforward\b/.test(text))return"forward";if(/\b(backward|back|reverse)\b/.test(text)||/\b(move|go|drive)\b.*\b(back|backward|reverse)\b/.test(text))return"backward";if(/\b(left)\b/.test(text))return"left";if(/\b(right)\b/.test(text))return"right";return null}
+voiceBtn.onclick=async()=>{if(!recognition)return;if(!window.isSecureContext){voiceStatus.textContent="Microphone requires an HTTPS website.";return}try{if(navigator.mediaDevices?.getUserMedia){const stream=await navigator.mediaDevices.getUserMedia({audio:true});stream.getTracks().forEach(t=>t.stop())}recognition.start()}catch(e){if(e.name==="NotAllowedError")voiceStatus.textContent="Microphone blocked. Allow Microphone in Chrome site settings.";else if(e.name==="NotFoundError")voiceStatus.textContent="No microphone found.";else if(e.name==="InvalidStateError")voiceStatus.textContent="Voice recognition is already running.";else voiceStatus.textContent="Microphone error: "+e.message}};
+</script>
+</body>
+</html>
